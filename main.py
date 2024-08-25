@@ -8,6 +8,10 @@ import requests
 import random
 import time
 from threading import Thread
+import os
+from sklearn import neighbors
+import pickle
+from sklearn.metrics.pairwise import cosine_similarity
 
 class VisionSystem:
     def __init__(self, left_camera_id=0, right_camera_id=1, model_path='path/to/saved_model', fov=60):
@@ -18,6 +22,12 @@ class VisionSystem:
 
         # Load face detection model (Haar cascade for fast detection)
         self.face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+        self.known_faces = []  # List to store known face features
+        self.known_names = []  # List to store corresponding names
+        self.face_features = []  # List to store features of known faces
+
+        # Load existing model if available
+        self.face_recognition_model = self.load_face_recognition_model()
 
     def generate_depth_map(self, frame_left, frame_right):
         gray_left = cv2.cvtColor(frame_left, cv2.COLOR_BGR2GRAY)
@@ -70,6 +80,8 @@ class VisionSystem:
                 if len(faces) > 0:
                     for (x, y, w, h) in faces:
                         cv2.rectangle(frame_left, (x, y), (x + w, y + h), (255, 0, 0), 2)
+                        face_img = frame_left[y:y+h, x:x+w]
+                        self.recognize_or_register_face(face_img)
                     print("Face detected!")
                 else:
                     print(detected_objects)
@@ -83,6 +95,77 @@ class VisionSystem:
         self.cap_left.release()
         self.cap_right.release()
         cv2.destroyAllWindows()
+
+    def recognize_or_register_face(self, face_img):
+        gray_face = cv2.cvtColor(face_img, cv2.COLOR_BGR2GRAY)
+        face_feature = gray_face.flatten()  # Flatten the face image to a 1D vector
+
+        if self.known_faces:
+            # Calculate similarity with known faces
+            similarities = [cosine_similarity([face_feature], [known_face])[0][0] for known_face in self.face_features]
+            max_similarity = max(similarities, default=0)
+            
+            if max_similarity > 0.77:
+                print("Face recognized with high similarity!")
+                return
+        
+        # Register new face
+        self.register_new_face(face_img)
+
+    def register_new_face(self, face_img):
+        face_dir = 'known_faces'
+        if not os.path.exists(face_dir):
+            os.makedirs(face_dir)
+
+        # Take multiple pictures of the new face
+        for i in range(5):  # Take 5 pictures
+            face_filename = os.path.join(face_dir, f"face_{time.time()}.png")
+            cv2.imwrite(face_filename, face_img)
+            time.sleep(2)  # Wait for 2 seconds between pictures
+        
+        # Request the person's name
+        name = self.request_name_from_api()
+        if not name:
+            print("Failed to get name.")
+            return
+        
+        # Save the face features
+        self.face_features.append(face_img.flatten())
+        self.known_names.append(name)
+        
+        # Save the updated face recognition model
+        self.save_face_recognition_model()
+
+    def request_name_from_api(self):
+        try:
+            response = requests.get('api_name_request_url')
+            response.raise_for_status()
+            sentence = response.json().get('sentence', 'What is your name?')
+            print(sentence)
+            # Code to speak the sentence here (implementation depends on the text-to-speech system)
+            name = input("Please enter the person's name: ")
+            return name
+        except requests.RequestException as e:
+            print(f"API request error: {e}")
+            return None
+
+    def load_face_recognition_model(self):
+        try:
+            with open('face_recognition_model.pkl', 'rb') as f:
+                model_data = pickle.load(f)
+                self.face_features = model_data.get('face_features', [])
+                self.known_names = model_data.get('known_names', [])
+                return neighbors.KNeighborsClassifier()  # Use KNN classifier
+        except FileNotFoundError:
+            return neighbors.KNeighborsClassifier()  # Return a new model if not found
+
+    def save_face_recognition_model(self):
+        with open('face_recognition_model.pkl', 'wb') as f:
+            model_data = {
+                'face_features': self.face_features,
+                'known_names': self.known_names
+            }
+            pickle.dump(model_data, f)
 
 class ServoControl:
     def __init__(self):
@@ -174,9 +257,12 @@ class RoboticBrain:
                     "Person detected speech": person_speech
                 }
 
-
-                response = requests.post('api_url', json=api_payload)
-                print("API Response:", response.status_code, response.json())
+                try:
+                    response = requests.post('api_url', json=api_payload)
+                    response.raise_for_status()
+                    print("API Response:", response.status_code, response.json())
+                except requests.RequestException as e:
+                    print(f"API request error: {e}")
 
             time.sleep(4)
 
