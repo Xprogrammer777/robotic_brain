@@ -9,8 +9,8 @@ import random
 import time
 from threading import Thread
 import os
-from sklearn import neighbors
 import pickle
+from sklearn import neighbors
 from sklearn.metrics.pairwise import cosine_similarity
 
 class VisionSystem:
@@ -123,8 +123,8 @@ class VisionSystem:
             cv2.imwrite(face_filename, face_img)
             time.sleep(2)  # Wait for 2 seconds between pictures
         
-        # Request the person's name
-        name = self.request_name_from_api()
+        # Request the person's name using speech recognition
+        name = self.request_name_via_speech()
         if not name:
             print("Failed to get name.")
             return
@@ -136,18 +136,25 @@ class VisionSystem:
         # Save the updated face recognition model
         self.save_face_recognition_model()
 
-    def request_name_from_api(self):
-        try:
-            response = requests.get('api_name_request_url')
-            response.raise_for_status()
-            sentence = response.json().get('sentence', 'What is your name?')
-            print(sentence)
-            # Code to speak the sentence here (implementation depends on the text-to-speech system)
-            name = input("Please enter the person's name: ")
-            return name
-        except requests.RequestException as e:
-            print(f"API request error: {e}")
-            return None
+    def request_name_via_speech(self):
+        # Prompt the person to say their name
+        print("Please say your name.")
+        # Code to use text-to-speech to prompt the person
+        # Assuming the robot has a way to speak
+        # For now, simulate this with a print statement
+        
+        recognizer = sr.Recognizer()
+        with sr.Microphone() as source:
+            audio = recognizer.listen(source, timeout=10)
+            try:
+                name = recognizer.recognize_google(audio)
+                print(f"Heard name: {name}")
+                return name
+            except sr.UnknownValueError:
+                print("Sorry, I couldn't understand that.")
+            except sr.RequestError as e:
+                print(f"Request error from Google Speech Recognition service; {e}")
+        return None
 
     def load_face_recognition_model(self):
         try:
@@ -313,3 +320,4 @@ class RoboticBrain:
 if __name__ == "__main__":
     brain = RoboticBrain()
     brain.run()
+
